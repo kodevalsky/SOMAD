@@ -1,0 +1,82 @@
+.header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  z-index: 100;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  padding: 24px 80px;
+  font-size: 12px;
+  text-transform: lowercase;
+  color: #ffffff;
+
+  /* фон бара */
+  background: rgba(5, 8, 22, 0.95);
+  backdrop-filter: blur(14px);
+
+  /* тонкая линия снизу */
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+
+/* логотип */
+.header__logo-img {
+  height: 24px;
+  width: auto;
+  display: block;
+}
+
+/* навигация */
+.header__nav {
+  display: flex;
+  gap: 32px;
+}
+
+/* базовая ссылка */
+.header__link {
+  position: relative;
+  opacity: 0.6;
+  text-decoration: none;
+  color: inherit;
+  transition: opacity 0.18s ease-out;
+}
+
+/* стиль активного пункта меню */
+.header__link--active {
+  opacity: 1;
+}
+
+/* underline эффект */
+.header__link::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -4px;
+  height: 2px;
+  border-radius: 999px;
+
+  background: linear-gradient(90deg, #3ee58f, #27cf7b);
+
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform 0.18s ease-out;
+}
+
+/* hover */
+.header__link:hover {
+  opacity: 0.9;
+}
+
+.header__link:hover::after {
+  transform: scaleX(1);
+}
+
+/* активный пункт всегда с подчеркиванием */
+.header__link--active::after {
+  transform: scaleX(1);
+}
