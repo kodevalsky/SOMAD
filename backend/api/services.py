@@ -124,16 +124,31 @@ class BERTService:
     @classmethod
     def _load_model(cls):
         if cls._model is None or cls._tokenizer is None:
+            # First try local model, then fallback to HuggingFace
             model_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'ml_models')
             
-            print(f"Loading BERT model from {model_path}...")
+            # Check if local model exists
+            if os.path.exists(model_path) and os.path.isdir(model_path):
+                print(f"Loading BERT model from {model_path}...")
+                try:
+                    cls._tokenizer = AutoTokenizer.from_pretrained(model_path)
+                    cls._model = AutoModelForSequenceClassification.from_pretrained(model_path)
+                    cls._model.eval()
+                    print("BERT model loaded successfully from local path.")
+                    return
+                except Exception as e:
+                    print(f"Could not load local model: {e}")
+            
+            # Fallback to HuggingFace model for fake news detection
+            print("Loading BERT model from HuggingFace Hub...")
             try:
-                cls._tokenizer = AutoTokenizer.from_pretrained(model_path)
-                cls._model = AutoModelForSequenceClassification.from_pretrained(model_path)
-                cls._model.eval() # Set to evaluation mode
-                print("BERT model loaded successfully.")
+                model_name = "hamzab/roberta-fake-news-classification"
+                cls._tokenizer = AutoTokenizer.from_pretrained(model_name)
+                cls._model = AutoModelForSequenceClassification.from_pretrained(model_name)
+                cls._model.eval()
+                print("BERT model loaded successfully from HuggingFace.")
             except Exception as e:
-                print(f"Error loading BERT model: {e}")
+                print(f"Error loading BERT model from HuggingFace: {e}")
                 raise e
 
     @classmethod
@@ -208,7 +223,7 @@ class GeminiService:
             
             labels_str = ", ".join([f"{l['name']} ({l['value']:.2f})" for l in labels]) if labels else "N/A"
             
-            prompt = (
+            base_prompt = (
                 f"Analyze the following social media post text for potential misinformation.\n"
                 f"Context: {context_info}\n"
                 f"Model Predictions: {labels_str}\n"
@@ -229,7 +244,10 @@ class GeminiService:
                 f"Return ONLY the valid JSON object. Do not include markdown formatting like ```json."
             )
             
-            response = model.generate_content(prompt)
+            # RAG ile prompt'u augment et
+            augmented_prompt = RAGService.augment_prompt(text, base_prompt)
+            
+            response = model.generate_content(augmented_prompt)
             content = response.text
             
             content = re.sub(r'```json\s*', '', content)
@@ -265,4 +283,242 @@ class GeminiService:
                     { "subject": 'Emotionality', "A": 0, "fullMark": 100 },
                 ]
             }
+
+import numpy as np
+from sentence_transformers import SentenceTransformer
+import faiss
+import json
+import os
+
+class RAGService:
+    _index = None
+    _embedder = None
+    _documents = None
+    _initialized = False
+
+    KNOWLEDGE_BASE = [
+        "Clickbait headlines often use sensational language, all-caps words, and emotional triggers to get attention without providing substantial information.",
+        "Fake news articles frequently lack credible sources, author information, or publication dates.",
+        "Manipulated content includes edited images, videos, or quotes taken out of context to mislead viewers.",
+        "Satire and parody sites use humor and exaggeration to comment on real events, but may be mistaken for real news.",
+        "Misleading content uses real information but presents it in a misleading way, often through cherry-picking data or misrepresenting statistics.",
+
+        "Credible news sources typically include multiple sources, expert quotes, and verifiable facts.",
+        "Real news articles have clear author attributions, publication dates, and transparent correction policies.",
+        "Fact-checking organizations like Snopes, FactCheck.org, and PolitiFact verify claims using primary sources.",
+
+        "Excessive use of emotional language (fear, anger, outrage) without factual support is a common indicator of misinformation.",
+        "Claims that seem too good or too bad to be true often require additional verification from trusted sources.",
+        "Conspiracy theories typically lack credible evidence and rely on unverified anecdotes or speculation.",
+        "Imposter content mimics legitimate news sources by using similar names, logos, or URLs to deceive readers.",
+
+        "Viral social media posts often spread misinformation faster than corrections can reach the same audience.",
+        "Bots and coordinated inauthentic behavior amplify false narratives on social media platforms.",
+        "Posts with urgent calls to action ('Share before they delete this!') often indicate manipulative content.",
+
+        "Reliable content typically presents balanced perspectives and acknowledges uncertainty where appropriate.",
+        "Misinformation often uses absolute language ('always', 'never', 'everyone') without nuance.",
+        "Lack of original reporting or investigation suggests content may be recycled or fabricated.",
+
+        "Reverse image search can reveal if images have been used in different contexts or manipulated.",
+        "Deepfakes and AI-generated content are increasingly sophisticated but often have subtle artifacts.",
+
+        "Established news organizations have editorial standards, fact-checking processes, and accountability mechanisms.",
+        "Anonymous or obscure sources without verifiable credentials should be treated with skepticism.",
+        "Cross-referencing claims across multiple independent credible sources increases reliability.",
+
+        "Old news stories reposted without context can mislead people about current events.",
+        "Misinformation often emerges during breaking news events when information is still developing.",
+    ]
+
+    @classmethod
+    def _initialize(cls):
+        if cls._initialized:
+            return
+
+        try:
+            print("Initializing RAG system...")
+
+            if cls._documents is None:
+                cls._documents = []
+
+            if cls.KNOWLEDGE_BASE:
+                cls._documents = cls.KNOWLEDGE_BASE.copy()
+                print(f"Loaded {len(cls.KNOWLEDGE_BASE)} base documents")
+            else:
+                print("Warning: KNOWLEDGE_BASE is empty!")
+
+            custom_count = cls._load_custom_documents()
+            if custom_count and custom_count > 0:
+                print(f"Loaded {custom_count} custom documents")
+
+            if not cls._documents:
+                print("ERROR: No documents in knowledge base!")
+                cls._initialized = True
+                return
+
+            print("Loading embedding model (all-MiniLM-L6-v2)...")
+            cls._embedder = SentenceTransformer('all-MiniLM-L6-v2')
+            print("Embedding model loaded")
+
+            print(f"Generating embeddings for {len(cls._documents)} documents...")
+            embeddings = cls._embedder.encode(cls._documents, show_progress_bar=False)
+            print("Embeddings generated")
+
+            dimension = embeddings.shape[1]
+            cls._index = faiss.IndexFlatL2(dimension)
+            cls._index.add(embeddings.astype('float32'))
+            print(f"FAISS index created (dimension: {dimension})")
+
+            cls._initialized = True
+            print(f"RAG system ready with {len(cls._documents)} documents!\n")
+
+        except Exception as e:
+            print(f"ERROR initializing RAG system: {e}")
+            import traceback
+            traceback.print_exc()
+            cls._initialized = True
+
+    @classmethod
+    def _load_custom_documents(cls):
+        try:
+            custom_kb_path = os.path.join(
+                os.path.dirname(os.path.dirname(__file__)),
+                'custom_knowledge_base.json'
+            )
+
+            if os.path.exists(custom_kb_path):
+                with open(custom_kb_path, 'r', encoding='utf-8') as f:
+                    custom_docs = json.load(f)
+                    if isinstance(custom_docs, list) and custom_docs:
+                        valid_docs = [doc.strip() for doc in custom_docs if doc and isinstance(doc, str) and doc.strip()]
+                        if valid_docs:
+                            cls._documents.extend(valid_docs)
+                            return len(valid_docs)
+            return 0
+        except Exception as e:
+            print(f"Could not load custom documents: {e}")
+            return 0
+
+    @classmethod
+    def add_document(cls, document):
+        if not document or not isinstance(document, str):
+            return
+
+        cls._initialize()
+
+        cls._documents.append(document)
+
+        embedding = cls._embedder.encode([document])
+
+        cls._index.add(embedding.astype('float32'))
+
+        print(f"Added new document to knowledge base. Total: {len(cls._documents)}")
+
+    @classmethod
+    def add_documents_batch(cls, documents):
+        if not documents or not isinstance(documents, list):
+            return
+
+        cls._initialize()
+
+        valid_docs = [doc for doc in documents if doc and isinstance(doc, str)]
+
+        if not valid_docs:
+            return
+
+        cls._documents.extend(valid_docs)
+
+    @classmethod
+    def retrieve_relevant_docs(cls, query, top_k=3):
+        cls._initialize()
+
+        if not cls._documents or cls._index is None:
+            print("RAG system not properly initialized")
+            return []
+
+        top_k = min(top_k, len(cls._documents))
+
+        query_embedding = cls._embedder.encode([query])
+
+        distances, indices = cls._index.search(query_embedding.astype('float32'), top_k)
+
+        relevant_docs = []
+        for idx, distance in zip(indices[0], distances[0]):
+            if idx < len(cls._documents):
+                similarity = 1 / (1 + distance)
+                relevant_docs.append({
+                    'text': cls._documents[idx],
+                    'score': float(similarity),
+                    'distance': float(distance)
+                })
+
+        return relevant_docs
+
+    @classmethod
+    def get_relevant_context(cls, query, top_k=3, score_threshold=0.3):
+        docs = cls.retrieve_relevant_docs(query, top_k)
+
+        relevant = [doc for doc in docs if doc['score'] >= score_threshold]
+
+        if not relevant:
+            return "No highly relevant verified information found in knowledge base."
+
+        context_parts = []
+        for i, doc in enumerate(relevant, 1):
+            context_parts.append(f"{i}. {doc['text']} (relevance: {doc['score']:.2f})")
+
+        return "\n".join(context_parts)
+
+    @classmethod
+    def augment_prompt(cls, query, base_prompt, top_k=3):
+        relevant_docs = cls.retrieve_relevant_docs(query, top_k)
+
+        if not relevant_docs:
+            return base_prompt
+
+        context_items = [f"- {doc['text']}" for doc in relevant_docs]
+        context = "\n".join(context_items)
+
+        augmented_prompt = (
+            f"Use the following verified information as context to improve your analysis:\n\n"
+            f"[VERIFIED KNOWLEDGE BASE]\n"
+            f"{context}\n"
+            f"[END KNOWLEDGE BASE]\n\n"
+            f"{base_prompt}"
+        )
+
+        return augmented_prompt
+
+    @classmethod
+    def save_knowledge_base(cls, filepath=None):
+        if filepath is None:
+            filepath = os.path.join(
+                os.path.dirname(os.path.dirname(__file__)),
+                'custom_knowledge_base.json'
+            )
+
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(cls._documents, f, indent=2, ensure_ascii=False)
+            print(f"Knowledge base saved to {filepath}")
+            return True
+        except Exception as e:
+            print(f"Error saving knowledge base: {e}")
+            return False
+
+    @classmethod
+    def get_stats(cls):
+        cls._initialize()
+
+        return {
+            'initialized': cls._initialized,
+            'total_documents': len(cls._documents) if cls._documents else 0,
+            'base_knowledge_count': len(cls.KNOWLEDGE_BASE),
+            'custom_documents_count': (len(cls._documents) - len(cls.KNOWLEDGE_BASE)) if cls._documents else 0,
+            'embedding_dimension': 384,
+            'model': 'all-MiniLM-L6-v2',
+            'index_ready': cls._index is not None
+        }
+
 
