@@ -14,10 +14,11 @@ import ReactMarkdown from 'react-markdown';
 const ResultsPage = () => {
     const location = useLocation();
     const navigate = useNavigate();
-    const { text, url, background, sourceCategory } = location.state || {};
+    const { text, url, background, sourceCategory, selectedModel } = location.state || {};
 
     const [loading, setLoading] = useState(true);
     const [result, setResult] = useState(null);
+    const [error, setError] = useState(null);
 
     // Define colors for specific labels
     const labelColors = {
@@ -46,19 +47,20 @@ const ResultsPage = () => {
                         text: text,
                         url: url,
                         background: background,
-                        sourceCategory: sourceCategory
+                        sourceCategory: sourceCategory,
+                        model: selectedModel
                     }),
                 });
 
                 if (!response.ok) {
-                    throw new Error(`API error: ${response.status}`);
+                    throw new Error(`API error: ${response.status} ${response.statusText}`);
                 }
 
                 const data = await response.json();
                 setResult(data);
             } catch (error) {
                 console.error("Error analyzing:", error);
-                // Optional: Set an error state to display to the user
+                setError(error.message);
             } finally {
                 setLoading(false);
             }
@@ -74,6 +76,38 @@ const ResultsPage = () => {
                     <Loader2 className="h-12 w-12 animate-spin text-blue-500 mx-auto" />
                     <p className="text-slate-400 text-lg">Analyzing content...</p>
                 </div>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="min-h-screen bg-slate-950 p-6 flex items-center justify-center">
+                <Card className="w-full max-w-md border-red-900 bg-slate-900">
+                    <CardHeader>
+                        <CardTitle className="text-red-500 flex items-center gap-2">
+                            <AlertCircle className="h-6 w-6" />
+                            Analysis Failed
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <p className="text-slate-300">
+                            An error occurred while communicating with the server.
+                        </p>
+                        <Alert variant="destructive" className="bg-red-950 border-red-900">
+                            <AlertDescription>
+                                {error}
+                            </AlertDescription>
+                        </Alert>
+                        <Button
+                            onClick={() => navigate('/')}
+                            className="w-full bg-slate-800 hover:bg-slate-700 text-white"
+                        >
+                            <ArrowLeft className="mr-2 h-4 w-4" />
+                            Return to Home
+                        </Button>
+                    </CardContent>
+                </Card>
             </div>
         );
     }
@@ -139,9 +173,9 @@ const ResultsPage = () => {
                         <CardContent>
                             <div className="flex items-center gap-4">
                                 <Badge className={`text-3xl px-6 py-2 ${result.verdict === 'True' ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30' :
-                                        result.verdict === 'False' ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30' :
-                                            result.verdict === 'Inconclusive' ? 'bg-slate-500/20 text-slate-400 hover:bg-slate-500/30' :
-                                                'bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30'
+                                    result.verdict === 'False' ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30' :
+                                        result.verdict === 'Inconclusive' ? 'bg-slate-500/20 text-slate-400 hover:bg-slate-500/30' :
+                                            'bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30'
                                     }`}>
                                     {result.verdict}
                                 </Badge>
@@ -204,51 +238,57 @@ const ResultsPage = () => {
                                 <CardTitle className="text-slate-200 text-lg">Model Predictions</CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-4">
-                                {/* Top Label */}
-                                <div className="space-y-1">
-                                    <div className="flex justify-between text-sm font-medium">
-                                        <span className="text-white">{result.labels[0]?.name || 'N/A'}</span>
-                                        <span className="text-slate-400">{(result.labels[0]?.value * 100).toFixed(1)}%</span>
-                                    </div>
-                                    <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
-                                        <div
-                                            className="h-full rounded-full"
-                                            style={{
-                                                width: `${result.labels[0]?.value * 100}%`,
-                                                backgroundColor: labelColors[result.labels[0]?.name] || "#3b82f6"
-                                            }}
-                                        />
-                                    </div>
-                                </div>
-
-                                {/* Expandable Other Labels */}
-                                <details className="group">
-                                    <summary className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-400 hover:text-slate-300">
-                                        <span>Show Other Labels</span>
-                                        <span className="transition group-open:rotate-180">
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
-                                        </span>
-                                    </summary>
-                                    <div className="mt-3 space-y-3 pl-2 border-l border-slate-800">
-                                        {result.labels.slice(1).map((label, index) => (
-                                            <div key={index} className="space-y-1">
-                                                <div className="flex justify-between text-xs text-slate-400">
-                                                    <span>{label.name}</span>
-                                                    <span>{(label.value * 100).toFixed(1)}%</span>
-                                                </div>
-                                                <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
-                                                    <div
-                                                        className="h-full rounded-full"
-                                                        style={{
-                                                            width: `${label.value * 100}%`,
-                                                            backgroundColor: labelColors[label.name] || "#3b82f6"
-                                                        }}
-                                                    />
-                                                </div>
+                                {result.labels && result.labels.length > 0 ? (
+                                    <>
+                                        {/* Top Label */}
+                                        <div className="space-y-1">
+                                            <div className="flex justify-between text-sm font-medium">
+                                                <span className="text-white">{result.labels[0]?.name || 'N/A'}</span>
+                                                <span className="text-slate-400">{(result.labels[0]?.value * 100).toFixed(1)}%</span>
                                             </div>
-                                        ))}
-                                    </div>
-                                </details>
+                                            <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
+                                                <div
+                                                    className="h-full rounded-full"
+                                                    style={{
+                                                        width: `${result.labels[0]?.value * 100}%`,
+                                                        backgroundColor: labelColors[result.labels[0]?.name] || "#3b82f6"
+                                                    }}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        {/* Expandable Other Labels */}
+                                        <details className="group">
+                                            <summary className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-400 hover:text-slate-300">
+                                                <span>Show Other Labels</span>
+                                                <span className="transition group-open:rotate-180">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+                                                </span>
+                                            </summary>
+                                            <div className="mt-3 space-y-3 pl-2 border-l border-slate-800">
+                                                {result.labels.slice(1).map((label, index) => (
+                                                    <div key={index} className="space-y-1">
+                                                        <div className="flex justify-between text-xs text-slate-400">
+                                                            <span>{label.name}</span>
+                                                            <span>{(label.value * 100).toFixed(1)}%</span>
+                                                        </div>
+                                                        <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                                                            <div
+                                                                className="h-full rounded-full"
+                                                                style={{
+                                                                    width: `${label.value * 100}%`,
+                                                                    backgroundColor: labelColors[label.name] || "#3b82f6"
+                                                                }}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </details>
+                                    </>
+                                ) : (
+                                    <p className="text-slate-500 text-sm">No label predictions available.</p>
+                                )}
                             </CardContent>
                         </Card>
 
@@ -259,25 +299,29 @@ const ResultsPage = () => {
                                 <CardDescription>LLM-derived feature analysis</CardDescription>
                             </CardHeader>
                             <CardContent className="h-[300px] flex justify-center items-center">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <RadarChart cx="50%" cy="50%" outerRadius="70%" data={result.radarData}>
-                                        <PolarGrid stroke="#334155" />
-                                        <PolarAngleAxis dataKey="subject" tick={{ fill: '#94a3b8', fontSize: 12 }} />
-                                        <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
-                                        <Radar
-                                            name="Analysis"
-                                            dataKey="A"
-                                            stroke="#2dd4bf"
-                                            strokeWidth={2}
-                                            fill="#2dd4bf"
-                                            fillOpacity={0.3}
-                                        />
-                                        <Tooltip
-                                            contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f8fafc' }}
-                                            itemStyle={{ color: '#2dd4bf' }}
-                                        />
-                                    </RadarChart>
-                                </ResponsiveContainer>
+                                {result.radar_data && result.radar_data.length > 0 ? (
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <RadarChart cx="50%" cy="50%" outerRadius="70%" data={result.radar_data}>
+                                            <PolarGrid stroke="#334155" />
+                                            <PolarAngleAxis dataKey="subject" tick={{ fill: '#94a3b8', fontSize: 12 }} />
+                                            <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
+                                            <Radar
+                                                name="Analysis"
+                                                dataKey="A"
+                                                stroke="#2dd4bf"
+                                                strokeWidth={2}
+                                                fill="#2dd4bf"
+                                                fillOpacity={0.3}
+                                            />
+                                            <Tooltip
+                                                contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f8fafc' }}
+                                                itemStyle={{ color: '#2dd4bf' }}
+                                            />
+                                        </RadarChart>
+                                    </ResponsiveContainer>
+                                ) : (
+                                    <p className="text-slate-500 text-sm">No metrics available.</p>
+                                )}
                             </CardContent>
                         </Card>
                     </div>

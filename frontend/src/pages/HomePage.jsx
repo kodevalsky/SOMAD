@@ -25,6 +25,7 @@ const HomePage = () => {
     const [urlInput, setUrlInput] = useState('');
     const [background, setBackground] = useState('');
     const [sourceCategory, setSourceCategory] = useState('');
+    const [selectedModel, setSelectedModel] = useState('gemma');
 
     const [error, setError] = useState('');
 
@@ -50,7 +51,8 @@ const HomePage = () => {
                 url: inputType === 'url' ? urlInput : null,
                 inputType,
                 background,
-                sourceCategory
+                sourceCategory,
+                selectedModel
             }
         });
     };
@@ -197,6 +199,23 @@ const HomePage = () => {
                                         <SelectItem value="news_site">News Website</SelectItem>
                                         <SelectItem value="forum">Online Forum</SelectItem>
                                         <SelectItem value="other">Other</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            {/* Model Selection Dropdown */}
+                            <div className="space-y-2 md:col-span-2">
+                                <label className="text-sm font-medium text-gray-400 ml-1 flex items-center gap-2">
+                                    <Type className="w-4 h-4" /> AI Model
+                                </label>
+                                <Select value={selectedModel} onValueChange={setSelectedModel}>
+                                    <SelectTrigger className="bg-black/20 border-white/10 text-white h-12 rounded-xl">
+                                        <SelectValue placeholder="Select AI Model..." />
+                                    </SelectTrigger>
+                                    <SelectContent className="bg-[#0f172a] border-white/10 text-white">
+                                        <SelectItem value="deepseek">DeepSeek</SelectItem>
+                                        <SelectItem value="gpt-oss">GPT-OSS</SelectItem>
+                                        <SelectItem value="gemma">Gemma</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>

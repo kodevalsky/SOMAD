@@ -1,6 +1,6 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from .services import MockAnalyzer, RapidAPIService, BERTService, GeminiService
+from .services import RapidAPIService, OpenRouterService
 
 class HelloView(APIView):
     def get(self, request):
@@ -25,35 +25,18 @@ class AnalyzeView(APIView):
                 content_to_analyze = ""
 
         if content_to_analyze:
-            try:
-                bert_result = BERTService.predict(content_to_analyze)
-            except Exception as e:
-                print(f"BERT Error: {e}")
-                bert_result = None
-
             context_info = f"Source Category: {source_category}, Background: {background}"
             
-            gemini_result = GeminiService.analyze_content(
+            model_choice = request.data.get("model", "gemma")
+
+            ai_result = OpenRouterService.analyze_content(
                 content_to_analyze, 
-                context_info, 
-                labels=bert_result['labels'] if bert_result else None
+                context_info,
+                model_key=model_choice
             )
             
-            gemini_summary = gemini_result.get('summary', "Summary unavailable.")
-            radar_data = gemini_result.get('radar_data', [])
-
-            mock_analyzer = MockAnalyzer()
-            mock_result = mock_analyzer.analyze(content_to_analyze)
-            
-            result = {
-                "verdict": bert_result["verdict"] if bert_result else mock_result["verdict"],
-                "confidence": bert_result["confidence"] if bert_result else mock_result["confidence"],
-                "summary": gemini_summary,
-                "labels": bert_result["labels"] if bert_result else mock_result["labels"],
-                "lime_importance": [], # Removed
-                "lime_html": "", # Removed
-                "radarData": radar_data if radar_data else mock_result["radarData"]
-            }
+            # Pass the AI result directly, even if it contains errors
+            result = ai_result
             
         else:
             result = {
@@ -61,10 +44,10 @@ class AnalyzeView(APIView):
                 "confidence": 0.0,
                 "summary": "Could not analyze content.",
                 "labels": [],
-                "lime_importance": [],
-                "lime_html": "",
-                "radarData": []
+                "radar_data": []
             }
+            
+
         
         result['fetched_text'] = content_to_analyze
         if fetch_error:
